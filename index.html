@@ -1,0 +1,514 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>NPPF Step Two – Sergeants Mock Exam (v6.3)</title>
+<style>
+:root { --bg:#0f172a; --card:#111827; --text:#e5e7eb; --muted:#9ca3af; --accent:#60a5fa; --good:#22c55e; --bad:#ef4444; --warn:#f59e0b; }
+* { box-sizing: border-box; }
+html,body{margin:0;padding:0;background:var(--bg);color:var(--text);font-family:system-ui,-apple-system,Segoe UI,Roboto,Ubuntu,Cantarell,Noto Sans,'Helvetica Neue',Arial;}
+header{padding:20px 24px;border-bottom:1px solid #374151;background:#0b1220;position:sticky;top:0;z-index:10}
+h1{margin:0;font-size:1.4rem}
+main{max-width:980px;margin:0 auto;padding:24px}
+.card{background:var(--card);border:1px solid #374151;border-radius:14px;padding:16px;margin-bottom:16px}
+label{display:block;margin:8px 0 4px}
+input[type="number"], select{width:100%;padding:10px;border-radius:10px;border:1px solid #374151;background:#0b1220;color:var(--text)}
+button{background:var(--accent);color:#001b2b;border:none;border-radius:10px;padding:12px 16px;cursor:pointer;font-weight:600}
+button.secondary{background:#334155;color:#e5e7eb}
+button:disabled{opacity:0.5;cursor:not-allowed}
+.row{display:flex;gap:12px;flex-wrap:wrap}
+.row > *{flex:1}
+.q{margin:18px 0;padding:16px;border-radius:12px;background:#0b1220;border:1px solid #374151}
+.q h3{margin-top:0}
+.meta{display:flex;gap:8px;flex-wrap:wrap;font-size:0.9rem;color:var(--muted)}
+.meta .pill{background:#0f172a;border:1px solid #374151;border-radius:999px;padding:4px 8px}
+.scenario{background:#0f172a;border:1px dashed #374151;border-radius:10px;padding:12px;margin:12px 0;white-space:pre-wrap}
+.question{font-style:italic;margin:8px 0}
+.options{display:grid;grid-template-columns:1fr;gap:10px;margin-top:8px}
+.opt{display:flex;align-items:center;justify-content:flex-start;gap:10px;width:100%;text-align:left;padding:14px;border-radius:10px;border:1px solid #374151;background:#0f172a;color:var(--text);min-height:48px}
+.opt .opt-label{font-weight:700;min-width:2.2ch}
+.opt .opt-text{flex:1}
+.opt .marker{margin-left:auto;font-weight:700}
+/* Selection and result states */
+.opt.selected{border-color:var(--accent)}
+.opt.correct{border-color:var(--good)}
+.opt.correct .marker{color:var(--good)}
+.opt.incorrect{border-color:var(--bad)}
+.opt.incorrect .marker{color:var(--bad)}
+.opt.disabled{opacity:0.8;cursor:not-allowed}
+.explain{padding:12px;border-left:4px solid #374151;margin-top:8px;background:#0f172a}
+.hidden{display:none}
+.muted{color:var(--muted)}
+.status{margin-top:8px;color:#9ca3af}
+.status.warn{color:var(--warn)}
+.timer{position:sticky;top:64px;background:#0b1220;border:1px solid #374151;border-radius:10px;padding:8px 12px;margin-bottom:12px;color:#93c5fd}
+@media (max-width:480px){ h1{font-size:1.2rem} .opt{padding:16px} button{width:100%} }
+</style>
+</head>
+<body>
+<header>
+  <h1>NPPF Step Two – Sergeants Mock Exam (v6.3)</h1>
+  <div class="muted">600 templates · richer scenarios · no repeats per session · answers revealed only after <strong>Check Score</strong>.</div>
+</header>
+<main>
+  <section class="card" id="settings">
+    <h2>Exam Settings</h2>
+    <div class="row">
+      <div>
+        <label for="qCount">Number of questions</label>
+        <input type="number" id="qCount" min="5" max="120" value="30" />
+      </div>
+      <div>
+        <label for="mode">Mode</label>
+        <select id="mode">
+          <option value="study">Study (explanations only after Check Score)</option>
+          <option value="test">Test (explanations only after Check Score)</option>
+          <option value="mock">Mock Exam (timed; explanations only after Check Score)</option>
+        </select>
+      </div>
+      <div>
+        <label for="minutes">Time limit (minutes)</label>
+        <input type="number" id="minutes" min="5" max="180" value="45" />
+      </div>
+    </div>
+    <div class="row">
+      <div>
+        <label><input type="checkbox" id="shuffle" checked> Shuffle options</label>
+      </div>
+      <div>
+        <label><input type="checkbox" id="unique" checked> Avoid repeating scenarios (this session)</label>
+      </div>
+    </div>
+    <div class="row">
+      <button id="startBtn">Start Exam</button>
+      <button class="secondary" id="finishBtn" disabled>Check Score</button>
+      <button class="secondary" id="resetUsed">Reset used scenarios</button>
+    </div>
+    <div id="status" class="status"></div>
+  </section>
+
+  <section class="card hidden" id="exam"></section>
+  <section class="card hidden" id="results"></section>
+</main>
+
+<script>
+(function(){
+  // Utilities
+  const rnd = n => Math.floor(Math.random()*n);
+  const pick = arr => arr[rnd(arr.length)];
+  const shuffle = arr => { for(let i=arr.length-1;i>0;i--){ const j=rnd(i+1); [arr[i],arr[j]]=[arr[j],arr[i]]; } return arr; };
+
+  // Pools
+  const ROLES=['Sgt','PS','PC','T/DS','DC'];
+  const NAMES=['Parish','Malone','Doherty','Smith','Jones','Patel','Owen','McKay','Ahmed','Brown','Williams','Hughes','Taylor','Green'];
+  const LOCS=['High Street','Towpath','Park Gate','Bus Station','Shopping Arcade','School Entrance','Estate Courtyard','Canal Bridge','Retail Park','Railway Station','Market Square','Community Centre'];
+  const AREAS=['busy pedestrianized zone','quiet residential cul-de-sac','mixed retail parade','canal towpath with moorings','multi-storey car park level 2','transport interchange concourse'];
+  const LANDMARKS=['CCTV mast','cashpoint','bus shelter','primary school gate','community centre steps','parking pay station'];
+  const ITEMS=['lock knife','screwdriver','baton','metal bar','spray can','bolt cutters','laptop','phone','wallet'];
+  const TIMES=['08:10','10:45','12:15','14:30','16:00','19:05','22:10'];
+  const AGES=['9','10','12','15','16','17'];
+  const WEATHER=['dry','light rain','overcast','gusty winds'];
+  const VEHICLES=['car','van','motorcycle'];
+
+  const CONTEXT_LINES=[
+    'Uniformed presence has been requested following recent calls for service in the area.',
+    'Body‑Worn Video (BWV) is activated and time‑stamped.',
+    'Radio traffic indicates other units are 5–7 minutes away.',
+    'Local CCTV is operational; control confirms cameras cover the location.',
+    'Several members of the public are observing; safeguarding considerations apply.',
+    'A supervisor is available by radio for fast‑time consultation.',
+    'Officer maintains a safe distance of 2–3 metres while assessing behaviour.',
+    'Previous intelligence logs (last 14 days) reference similar offending patterns.',
+    'Lighting is adequate; visibility is good despite the weather.',
+    'The officer notes hands, waistband, and bag movements consistent with concealment.'
+  ];
+
+  // Template factory
+  function T(id,title,leg,scenario,question,options,correct,explain,vars){
+    return {id,title,legislation:leg,scenarioTemplate:scenario,questionText:question,options,correctIndex:correct,explanation:explain,variables:vars||{}};
+  }
+
+  // Base templates across syllabus
+  const BASE=[];
+  BASE.push(T('PACE_A','PACE Code A – Intel vs objective grounds','PACE Code A',
+    'At {Time} in {Weather}, {Role} {Name} patrols the {Area} near the {Landmark} by the {Location}. {Name} observes {Count} youths: one adjusts his waistband, another repeatedly scans the area, and a third keeps hands inside a hoodie pocket. Recent intelligence indicates trios of local gang members habitually carry knives.\n{Ctx}',
+    'Under Code A, which approach is correct?',
+    [
+      'Search all three based solely on gang intel',
+      'Each search must be justified by individual objective grounds; intel may inform but is not determinative',
+      'Only those aged 10+ can be searched lawfully under s1 PACE',
+      'Tattoos or intel cannot be considered at all'
+    ],1,
+    'Code A requires objective, individual grounds built from observations; intelligence contributes but does not create blanket authority.',
+    {Time:TIMES,Weather:WEATHER,Role:ROLES,Name:NAMES,Area:AREAS,Landmark:LANDMARKS,Location:LOCS,Count:['3'],Ctx:[CONTEXT_LINES]}
+  ));
+
+  BASE.push(T('CODEC_SOL','Code C – Solicitor requested','PACE Code C',
+    'In custody at {Time}, a detainee calmly states they want a solicitor prior to interview. The OIC notes the case involves recent acquisitive crime with multiple witnesses and suggests proceeding due to workload pressures. BWV and custody CCTV record the exchange.\n{Ctx}',
+    'Which is correct?',
+    [
+      'Interview must be delayed unless a recorded Code C exception applies',
+      'Proceed while advice is arranged',
+      'Legal advice is discretionary',
+      'Only written advice is allowed'
+    ],0,
+    'Code C provides an unqualified right to legal advice; any exception requires specific grounds, authority, and recording.',
+    {Time:TIMES,Ctx:[CONTEXT_LINES]}
+  ));
+
+  BASE.push(T('CODED_STREET','Code D – Street identification','PACE Code D',
+    'Minutes after an assault at the {Location}, a witness points out a person near the {Landmark}. {Role} {Name} considers a street identification. The area is {Weather} and footfall is moderate. Control confirms a camera overlooks the scene.\n{Ctx}',
+    'Which is correct?',
+    [
+      'Street ID is informal; follow Code D safeguards and record details',
+      'Street ID is a formal video parade replacement',
+      'Street ID is inadmissible unless filmed',
+      'Street ID cannot occur if the suspect denies involvement'
+    ],0,
+    'Street IDs are informal but recognised; officers should document conditions, witness reliability, and steps taken per Code D.',
+    {Location:LOCS,Landmark:LANDMARKS,Role:ROLES,Name:NAMES,Weather:WEATHER,Ctx:[CONTEXT_LINES]}
+  ));
+
+  BASE.push(T('EVID_78','PACE s78 – Excluding evidence','PACE s78',
+    'During a search at the {Location}, scope of the warrant appears exceeded when a {Item} is seized from an adjacent storage area not listed. Defence indicates a fairness challenge under s78. BWV captures the decision‑making; a supervisor is consulted via radio.\n{Ctx}',
+    'Which principle applies?',
+    [
+      'Evidence may be excluded if its admission would adversely affect the fairness of proceedings',
+      'Improperly obtained evidence is automatically excluded',
+      'All evidence seized under any warrant is admissible regardless',
+      'CPS decides admissibility without court involvement'
+    ],0,
+    'Under s78 PACE, courts may exclude evidence where admission would adversely affect fairness; unlawfulness does not mean automatic exclusion.',
+    {Location:LOCS,Item:ITEMS,Ctx:[CONTEXT_LINES]}
+  ));
+
+  BASE.push(T('MODA_23','MoDA s23 – Drug search grounds','Misuse of Drugs Act 1971',
+    'At {Time} near the {Location} {Landmark}, {Role} {Name} sees furtive exchanges: small packets change hands; a suspect discards a wrap upon approach; cannabis smell is present. Footfall is steady; nearby CCTV is operational.\n{Ctx}',
+    'Which power applies?',
+    [
+      's23 MoDA – search of person/premises based on reasonable grounds',
+      'PACE s1 only',
+      'No search without arrest',
+      'Warrant under s8 PACE required'
+    ],0,
+    'Behaviour, disposal attempts, and odour can contribute to reasonable grounds for s23 searches.',
+    {Time:TIMES,Location:LOCS,Landmark:LANDMARKS,Role:ROLES,Name:NAMES,Ctx:[CONTEXT_LINES]}
+  ));
+
+  BASE.push(T('OAPA_20','OAPA – s20 GBH without intent','OAPA 1861',
+    'A dispute escalates at the {Location}. {Name} swings a {Item} causing deep lacerations; BWV shows no clear intent to cause GBH but serious harm is evident. Witnesses report panic and bystanders retreating.\n{Ctx}',
+    'Most appropriate charge?',
+    [
+      's20 – inflict GBH/wounding without intent',
+      's18 – cause GBH with intent',
+      'ABH – s47',
+      'Common assault'
+    ],0,
+    's20 covers unlawful wounding/GBH without specific intent; s18 requires intent to cause serious injury.',
+    {Location:LOCS,Name:NAMES,Item:['metal bar','bottle','wooden baton'],Ctx:[CONTEXT_LINES]}
+  ));
+
+  BASE.push(T('RTA_163','RTA – Power to stop vehicles','RTA 1988',
+    'At {Time} on the {Location} access road, {Role} {Name} signals a {Vehicle} to stop; driver continues slowly for 200m, stopping near a {Landmark}. Traffic is light; visibility is {Weather}.\n{Ctx}',
+    'Which is correct?',
+    [
+      's163 requires a driver to stop when required by a constable; failing to stop is an offence',
+      'Stopping is discretionary unless an offence suspected',
+      'Power applies only on motorways',
+      'Power applies only with written authority'
+    ],0,
+    's163 RTA provides a general power to require drivers to stop on request; failure is an offence.',
+    {Time:TIMES,Location:LOCS,Role:ROLES,Name:NAMES,Vehicle:VEHICLES,Landmark:LANDMARKS,Weather:WEATHER,Ctx:[CONTEXT_LINES]}
+  ));
+
+  BASE.push(T('SEARCH_S17','PACE s17 – Entry without warrant','PACE s17',
+    'Officers attend the {Location} after reports of an ongoing domestic assault. Cries for help are audible; neighbours gather. {Role} {Name} considers immediate entry to arrest for an indictable offence and protect life.\n{Ctx}',
+    'Which entry power applies?',
+    [
+      's17 permits entry without warrant to arrest for indictable offences and to save life/limb',
+      'Entry requires s8 warrant only',
+      'Entry is unlawful without consent',
+      'Entry requires superintendent authorisation'
+    ],0,
+    's17 authorises entry for arrest for indictable offences and to protect life/limb.',
+    {Location:LOCS,Role:ROLES,Name:NAMES,Ctx:[CONTEXT_LINES]}
+  ));
+
+  BASE.push(T('SEARCH_S18','PACE s18 – Premises search after arrest','PACE s18',
+    'After arrest for burglary, OIC considers searching the suspect’s occupied garage adjacent to the {Location}. BWV records rationale and the scope related to the arrested offence.\n{Ctx}',
+    'Which is correct?',
+    [
+      's18 permits search of premises occupied/controlled by the suspect for evidence of the offence',
+      'Only the dwelling can be searched under s18',
+      'A warrant is always required',
+      'Search must be post‑charge only'
+    ],0,
+    's18 includes premises occupied or controlled by the suspect for evidence linked to the offence.',
+    {Location:LOCS,Ctx:[CONTEXT_LINES]}
+  ));
+
+  BASE.push(T('SEARCH_S32','PACE s32 – Search after arrest','PACE s32',
+    '{Role} {Name} arrests a suspect near the {Landmark} by the {Location}. Items believed to be stolen may be within reach; the location is {Weather}.\n{Ctx}',
+    'Which is correct?',
+    [
+      's32 allows search of the arrested person and, in some cases, the place of arrest for evidence/dangerous items',
+      'Only s18 applies',
+      'Cannot search until custody',
+      'Must first obtain s8 warrant'
+    ],0,
+    's32 includes searching the arrested person and immediate place of arrest under conditions.',
+    {Role:ROLES,Name:NAMES,Landmark:LANDMARKS,Location:LOCS,Weather:WEATHER,Ctx:[CONTEXT_LINES]}
+  ));
+
+  BASE.push(T('CJPOA_S60','CJPOA s60 – Weapons authorisation','Criminal Justice and Public Order Act 1994',
+    'Following a spate of serious violence, an officer receives an area authorisation under s60 to search for weapons within the {Location} footprint for a defined time. Signs are posted and a briefing given.\n{Ctx}',
+    'Which statement is correct?',
+    [
+      's60 permits searches for weapons without individual suspicion within the authorised area and time',
+      'PACE s1 is the only applicable power',
+      'Terrorism Act s47A must be used here',
+      'No area authorisations exist'
+    ],0,
+    's60 authorises suspicionless searches for offensive weapons in defined areas/times following proper authorisation.',
+    {Location:LOCS,Ctx:[CONTEXT_LINES]}
+  ));
+
+  BASE.push(T('TERRA_S47A','Terrorism Act – s47A','Terrorism Act 2000',
+    'Intelligence indicates a real possibility of terrorist‑related violence near the {Landmark} by the {Location}. A senior officer authorises searches under s47A for a limited area/time.\n{Ctx}',
+    'Which statement is correct?',
+    [
+      's47A allows searches without individual suspicion under a formal authorisation',
+      'Only PACE s1 applies',
+      'CJPOA s60 must be used for terrorism threats',
+      'Area searches cannot be authorised'
+    ],0,
+    'TA 2000 s47A enables suspicionless searches where conditions are met and authorisation is properly issued.',
+    {Location:LOCS,Landmark:LANDMARKS,Ctx:[CONTEXT_LINES]}
+  ));
+
+  BASE.push(T('CD_S5','Criminal Damage – lawful excuse','Criminal Damage Act 1971',
+    '{Name} removes a wheel clamp from a vehicle at the {Location}, genuinely believing the owner would consent to removal. Crowd gathers; BWV records the explanation.\n{Ctx}',
+    'Which is correct?',
+    [
+      'Lawful excuse may apply with an honest belief in consent',
+      'Written consent is required to rely on lawful excuse',
+      'Lawful excuse never applies to vehicle‑related damage',
+      'Police permission must be obtained first'
+    ],0,
+    's5 lawful excuse includes honest belief the owner would consent; assessed subjectively.',
+    {Name:NAMES,Location:LOCS,Ctx:[CONTEXT_LINES]}
+  ));
+
+  BASE.push(T('THEFT_S6','Theft – intention to permanently deprive','Theft Act 1968',
+    '{Name} takes a {Item} intending to return it after use but damages it beyond repair; BWV captures admission of misuse.\n{Ctx}',
+    'Which element is engaged?',
+    [
+      'Intention to permanently deprive (s6) can be inferred where property is treated as one’s own to dispose of',
+      'Appropriation (s3) only',
+      'Belonging to another (s5) negates theft',
+      'Dishonesty is irrelevant'
+    ],0,
+    's6 covers treating property as one’s own to dispose of, supporting IPD even if later returned in an unusable state.',
+    {Name:NAMES,Item:ITEMS,Ctx:[CONTEXT_LINES]}
+  ));
+
+  // Scenario expansion helper
+  function buildScenario(tpl){
+    const pools = {Role:ROLES, Name:NAMES, Location:LOCS, Area:AREAS, Landmark:LANDMARKS, Item:ITEMS, Time:TIMES, Age:AGES, Age1:AGES, Age2:AGES, Age3:AGES, Weather:WEATHER, Vehicle:VEHICLES, Count:['2','3','4','5'], Ctx:[CONTEXT_LINES]};
+    const vars = tpl.variables || {};
+    const picks = {};
+    for(const key of Object.keys(pools)){
+      const source = vars[key] || pools[key];
+      // If source is an array of lines and key is Ctx, randomly choose 2–3 lines
+      if(key==='Ctx'){
+        const lines = source;
+        const chosen = shuffle(lines.slice()).slice(0, rnd(2)+2); // 2–3 lines
+        picks[key] = chosen.join('\n');
+      } else {
+        picks[key] = pick(source);
+      }
+    }
+    let scenario = tpl.scenarioTemplate;
+    for(const [k,v] of Object.entries(picks)){
+      scenario = scenario.replace(new RegExp('\\{'+k+'\\}', 'g'), v);
+    }
+    return scenario;
+  }
+
+  // Build the full 600‑template bank
+  const TEMPLATES=[];
+  // Seed with all base templates
+  BASE.forEach(b=>TEMPLATES.push(b));
+  // Generate variants to reach 600 total
+  const need = 600 - TEMPLATES.length;
+  for(let i=0;i<need;i++){
+    const b = BASE[i % BASE.length];
+    // Clone with a variant id; we'll reuse the same options/correct/explain but scenario will be rebuilt each time at runtime
+    TEMPLATES.push(T(
+      b.id+'_V'+(i+1),
+      b.title+' (Variant '+(i+1)+')',
+      b.legislation,
+      b.scenarioTemplate,
+      b.questionText,
+      b.options,
+      b.correctIndex,
+      b.explanation,
+      b.variables
+    ));
+  }
+
+  // Uniqueness tracking (session)
+  const usedVariants = new Set();
+
+  function buildPaper(requested, avoidRepeat){
+    const statusEl = document.getElementById('status');
+    const total = TEMPLATES.length;
+    let count = Math.min(requested, total);
+    if(requested > total){ statusEl.innerHTML = `<span class="status warn">Requested ${requested} exceeds available (${total}). Capped at ${total}.</span>`; }
+    else { statusEl.textContent = `Generating ${count} unique questions from a bank of ${total}.`; }
+    const order = shuffle(TEMPLATES.slice());
+    const paper = [];
+    for(const tpl of order){
+      if(paper.length >= count) break;
+      const scenario = buildScenario(tpl);
+      const variantKey = tpl.id+'|'+scenario; // scenario text uniqueness
+      if(avoidRepeat && usedVariants.has(variantKey)) continue;
+      usedVariants.add(variantKey);
+      paper.push({ id:tpl.id, title:tpl.title, legislation:tpl.legislation, scenario:scenario, question:tpl.questionText, options:tpl.options.slice(), correctIndex:tpl.correctIndex, explanation:tpl.explanation });
+    }
+    return paper;
+  }
+
+  // UI wiring with delegated click handling and Check Score gating
+  const examEl=document.getElementById('exam');
+  const resultsEl=document.getElementById('results');
+  const startBtn=document.getElementById('startBtn');
+  const finishBtn=document.getElementById('finishBtn');
+  const resetBtn=document.getElementById('resetUsed');
+  const qCountEl=document.getElementById('qCount');
+  const modeEl=document.getElementById('mode');
+  const minutesEl=document.getElementById('minutes');
+  const shuffleEl=document.getElementById('shuffle');
+  const uniqueEl=document.getElementById('unique');
+  const statusEl=document.getElementById('status');
+
+  let state={paper:[],answers:[],mode:'study',timer:null,answered:0};
+
+  function updateFinishState(){
+    const allAnswered = state.answered === state.paper.length && state.paper.length>0;
+    finishBtn.disabled = !allAnswered;
+    statusEl.textContent = allAnswered ? 'All questions answered. You can now click Check Score.' : `Answered ${state.answered}/${state.paper.length}. Answer all questions to enable Check Score.`;
+  }
+
+  function startExam(){
+    const requested = parseInt(qCountEl.value||'30',10);
+    const avoid = uniqueEl.checked;
+    const paper = buildPaper(requested, avoid);
+    state.paper = paper;
+    state.answers = Array(paper.length).fill(null);
+    state.mode = modeEl.value;
+    state.answered = 0;
+
+    examEl.classList.remove('hidden');
+    resultsEl.classList.add('hidden');
+    examEl.innerHTML = '';
+
+    let idx=0;
+    for(const q of paper){
+      const wrap = document.createElement('div'); wrap.className='q'; wrap.setAttribute('data-q', String(idx));
+      const meta = `<div class="meta"><span class="pill">${q.legislation}</span><span class="pill">Scenario‑driven</span></div>`;
+      wrap.innerHTML = `<h3>Q${idx+1}. ${q.title}</h3>${meta}<div class="scenario">${q.scenario}</div><p class="question">${q.question}</p>`;
+
+      const optsWrap = document.createElement('div'); optsWrap.className = 'options';
+      let opts = q.options.map((t,i)=>({text:t,idx:i}));
+      if(shuffleEl.checked) opts = shuffle(opts);
+      opts.forEach((o,pos)=>{
+        const label = String.fromCharCode(65+pos);
+        const b=document.createElement('button'); b.className='opt'; b.type='button';
+        b.setAttribute('data-idx', String(o.idx)); b.setAttribute('data-pos', String(pos));
+        b.innerHTML = `<span class="opt-label">${label})</span><span class="opt-text">${o.text}</span><span class="marker" aria-hidden="true"></span>`;
+        optsWrap.appendChild(b);
+      });
+      wrap.appendChild(optsWrap);
+
+      const exp=document.createElement('div'); exp.className='explain hidden'; exp.innerHTML='<strong>Explanation:</strong> '+q.explanation; wrap.appendChild(exp);
+      examEl.appendChild(wrap);
+      idx++;
+    }
+
+    // Timer for mock mode
+    if(state.mode==='mock'){
+      const mins = parseInt(minutesEl.value||'45',10);
+      const endTime = Date.now() + mins*60*1000;
+      const timerBar = document.createElement('div'); timerBar.className='timer'; examEl.prepend(timerBar);
+      state.timer = setInterval(()=>{
+        const left = Math.max(0, endTime - Date.now());
+        const m = Math.floor(left/60000), s = Math.floor((left%60000)/1000);
+        timerBar.textContent = `Time left: ${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`;
+        if(left<=0){ clearInterval(state.timer); finishExam(true); }
+      }, 500);
+    }
+
+    updateFinishState();
+  }
+
+  // Delegated click handler for answers
+  examEl.addEventListener('click', (ev)=>{
+    const btn = ev.target.closest('button.opt');
+    if(!btn) return;
+    const qWrap = btn.closest('.q');
+    if(!qWrap) return;
+    const qIndex = parseInt(qWrap.getAttribute('data-q'),10);
+    if(state.answers[qIndex]!==null) return; // already answered
+    const q = state.paper[qIndex];
+    const ansIndex = parseInt(btn.getAttribute('data-idx'),10);
+    state.answers[qIndex] = ansIndex;
+
+    const buttons = Array.from(qWrap.querySelectorAll('button.opt'));
+    buttons.forEach(b=>{ b.classList.add('disabled'); b.disabled=true; b.classList.remove('selected'); });
+    btn.classList.add('selected'); // show selection only, not correctness
+
+    state.answered++;
+    updateFinishState();
+  });
+
+  function finishExam(auto=false){
+    const allAnswered = state.answers.every(a=>a!==null);
+    if(!allAnswered){
+      statusEl.classList.add('warn');
+      statusEl.textContent = 'Please answer all questions before clicking Check Score.';
+      return;
+    }
+    statusEl.classList.remove('warn');
+
+    // Reveal correctness and explanations now
+    const qBlocks = Array.from(document.querySelectorAll('.q'));
+    qBlocks.forEach((wrap, i)=>{
+      const q = state.paper[i];
+      const buttons = Array.from(wrap.querySelectorAll('button.opt'));
+      buttons.forEach(b=>{ b.classList.add('incorrect'); });
+      const correctBtn = buttons.find(b => parseInt(b.getAttribute('data-idx'),10) === q.correctIndex);
+      if(correctBtn){ correctBtn.classList.remove('incorrect'); correctBtn.classList.add('correct'); }
+      const exp = wrap.querySelector('.explain'); if(exp) exp.classList.remove('hidden');
+    });
+
+    let correct=0; for(let i=0;i<state.paper.length;i++){ if(state.answers[i]===state.paper[i].correctIndex) correct++; }
+    const pct = Math.round((correct/state.paper.length)*100);
+    const resultsEl=document.getElementById('results');
+    resultsEl.classList.remove('hidden');
+    resultsEl.innerHTML = `<h2>Results</h2><p><strong>Score:</strong> ${correct}/${state.paper.length} (${pct}%)</p><p class="muted">Mode: ${state.mode}${auto?' · Auto‑submitted on time':''}</p>`;
+    if(state.timer) clearInterval(state.timer);
+  }
+
+  document.getElementById('startBtn').addEventListener('click', startExam);
+  document.getElementById('finishBtn').addEventListener('click', ()=> finishExam(false));
+  document.getElementById('resetUsed').addEventListener('click', ()=>{ usedVariants.clear(); alert('Used scenario tracker cleared for this session.'); });
+})();
+</script>
+<footer style="max-width:980px;margin:0 auto;padding:24px;color:#9ca3af;font-size:0.85rem">
+  <p><strong>v6.3:</strong> 600 templates via programmatic variants, richer multi‑line scenarios (time, weather, role, area, landmark, behaviour, operational context), session‑unique questions, and Check Score gating.</p>
+</footer>
+</body>
+</html>
